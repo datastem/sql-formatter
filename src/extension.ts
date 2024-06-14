@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import  { sqlKeywords,tabchar  } from './declarations';
+import  { sqlKeywords,tabchar,operators  } from './declarations';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -39,65 +39,89 @@ export function activate(context: vscode.ExtensionContext) {
 				text = document.getText();
 				range = new vscode.Range(document.positionAt(0),document.lineAt(document.lineCount - 1).range.end);
 			}
-			let oldtextarray:string[] = text.split(" ");
-			let newtextarray:string[] = [];
+
+			//let sourcearray:string[] = text.split(/[\s+;(),]/);
+			let sourcearray:string[] = text.split(/\s+([\s;(),])/gm);
+			//sourcearray = sourcearray.filter(c => c);
+			//let sourcearray:string[] = text.split(' ');
+			let destarray:string[] = [];
 			let tabcount:number = 0;
 			let tokenindex:number = 0;
+			let destindex:number = 0;
 
-			while (tokenindex < oldtextarray.length)
+			while (tokenindex < sourcearray.length)
 			{
-				let token = oldtextarray[tokenindex];
+				let token = sourcearray[tokenindex].trim();
 				token = token.toUpperCase();
-				newtextarray.push(token.trim());
+				destindex = destarray.push(token) - 1;
 
 				if (sqlKeywords.find(x => x.toUpperCase() === token.toUpperCase()))
 				{
 					if (token === "SELECT")
 					{
-						tabcount++;
-						let fromindex:number = oldtextarray.map(token => token.toUpperCase()).indexOf("FROM",tokenindex);
-						if (fromindex === -1)
-						{
-							fromindex = oldtextarray.length+1;
-						}
-						let columnarray:string[] = [];
-						for(let index = tokenindex+1; index < fromindex; index++) 
-						{
-							columnarray.push(oldtextarray[index]);
-						}
-						let newcolarray = formatSelect(columnarray,tabcount);
-						newcolarray.forEach(col => {newtextarray.push(col);});
-						tokenindex = fromindex-1;
-						tabcount--;
+						var result = GetEmbeddedLines(sourcearray,["FROM"],tokenindex);
+						let workingarray = formatColumnList(result[0],tabcount+1);
+						workingarray.forEach(col => {destarray.push(col);});
+						tokenindex = result[1];
 					}
 
 					if (token === "FROM")
 					{
-						const fromEndClauses:string[] = ["WHERE", "GROUP", "ORDER"];
-						tabcount++;
-						//let whereindex:number = oldtextarray.map(token => token.toUpperCase()).indexOf("WHERE",tokenindex);
-						let whereindex:number = oldtextarray.map(token => token.toUpperCase()).findIndex(x => fromEndClauses.includes(x), tokenindex+1);
-						if (whereindex === -1)
-						{
-							whereindex = oldtextarray.length;
-						}
-						let columnarray:string[] = [];
-						for(let index = tokenindex+1; index < whereindex; index++) 
-						{
-							columnarray.push(oldtextarray[index]);
-						}
-						let newcolarray = formatFrom(columnarray,tabcount);
-						newcolarray.forEach(col => {newtextarray.push(col);});
-						tokenindex = whereindex-1;
-						tabcount--;
+						var result = GetEmbeddedLines(sourcearray,["WHERE", "GROUP", "ORDER"],tokenindex);
+						let workingarray = formatFrom(result[0],tabcount+1);
+						workingarray.forEach(col => {destarray.push(col);});
+						tokenindex = result[1];
 					}
+
+					if (token === "WHERE")
+					{
+						var result = GetEmbeddedLines(sourcearray,["GROUP", "ORDER"],tokenindex);
+						let workingarray = formatWhere(result[0],tabcount+1);
+						workingarray.forEach(col => {destarray.push(col);});
+						tokenindex = result[1];
+					}
+
+					if (token === "GROUP")
+					{
+						if (sourcearray[tokenindex+1].toUpperCase() === "BY")
+						{
+							destarray[destindex] = destarray[destindex] + " BY";
+							tokenindex++;
+						}
+						var result = GetEmbeddedLines(sourcearray,["HAVING","ORDER"],tokenindex);
+						let workingarray = formatColumnList(result[0],tabcount+1);
+						workingarray.forEach(col => {destarray.push(col);});
+						tokenindex = result[1];
+					}
+
+					if (token === "HAVING")
+					{
+						var result = GetEmbeddedLines(sourcearray,["ORDER"],tokenindex);
+						let workingarray = formatWhere(result[0],tabcount+1);
+						workingarray.forEach(col => {destarray.push(col);});
+						tokenindex = result[1];
+					}
+
+					if (token === "ORDER")
+					{
+						if (sourcearray[tokenindex+1].toUpperCase() === "BY")
+						{
+							destarray[destindex] = destarray[destindex] + " BY";
+							tokenindex++;
+						}
+						var result = GetEmbeddedLines(sourcearray,[],tokenindex);
+						let workingarray = formatColumnList(result[0],tabcount+1);
+						workingarray.forEach(col => {destarray.push(col);});
+						tokenindex = result[1];
+					}
+
 				}
 				tokenindex++;
 			}
 
 			editor.edit(editBuilder => {
 				//editBuilder.replace(selection, reversed);
-				editBuilder.replace(range, newtextarray.join("\n"));
+				editBuilder.replace(range, destarray.join("\n"));
 			});
 		}
 
@@ -110,31 +134,103 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {}
 
 
-function formatSelect(colarray : string[], tabcount : number) : string[]
+function GetEmbeddedLines(srcarray : string[], endtokens: string[], startindex: number) : [string[], number]
+{
+	let endindex:number = srcarray.map(token => token.toUpperCase()).findIndex(x => endtokens.includes(x), startindex+1);
+	if (endindex === -1)
+	{
+		endindex = srcarray.length;
+	}
+	let columnarray:string[] = [];
+	for(let i = startindex+1; i < endindex; i++) 
+	{
+		columnarray.push(srcarray[i]);
+	}
+	startindex = endindex-1;
+	return [columnarray, startindex];
+}
+
+
+function formatColumnList(workarray : string[], tabcount : number) : string[]
 {
 	let result:string[] = [];
 	let tabs:string = tabchar.repeat(tabcount);
+	let comma:string = "";
 
-	colarray.forEach(token => {
-		token = tabchar.repeat(tabcount) + token.trim();
-		if (token.indexOf(",") > 0)
-		{
-			token = token.replaceAll(",","\n"+tabs+",");
-		}
+	workarray.forEach(token => {
+		token = tabchar.repeat(tabcount) + comma +  token.trim();
+		result.push(token);
+		comma = ",";
+	});
+
+	return result;
+}
+
+function formatFrom(workarray : string[], tabcount : number) : string[]
+{
+	let result:string[] = [];
+
+	workarray.forEach(token => {
+		token = tabchar.repeat(tabcount) + token;
 		result.push(token);
 	});
 
 	return result;
 }
 
-function formatFrom(colarray : string[], tabcount : number) : string[]
+function formatWhere(workarray : string[], tabcount : number) : string[]
 {
 	let result:string[] = [];
+	let opindex:number = workarray.findIndex(x => operators.includes(x));
+	let optoken:string = "";
 
-	colarray.forEach(token => {
-		token = tabchar.repeat(tabcount) + token;
-		result.push(token);
-	});
+	if (opindex === -1)
+	{
+		let a1:string[]	= customSplit(workarray[0],operators);
+		opindex = a1.findIndex(x => operators.includes(x));
+		optoken = tabchar.repeat(tabcount) + a1[opindex-1] + " " + a1[opindex] + " " + a1[opindex+1];
+	}
+	else
+	{
+		optoken = tabchar.repeat(tabcount) + workarray[opindex-1] + " " + workarray[opindex] + " " + workarray[opindex+1];
+	}
+	result.push(optoken);
 
 	return result;
+}
+
+function customSplit(input: string, delimiters: string[]): string[] 
+{
+    const result: string[] = [];
+    let currentWord = '';
+
+    for (const char of input) 
+	{
+		if (delimiters.includes(char)) 
+		{
+			if (currentWord) 
+			{
+				result.push(currentWord);
+				currentWord = '';
+			}
+		} 
+		currentWord += char;
+
+		if (delimiters.includes(currentWord))
+		{
+			result.push(currentWord);
+			currentWord = '';
+		}
+    }
+
+    if (currentWord) {
+        result.push(currentWord);
+    }
+
+    return result;
+}
+
+function splitStringWithAssertions(input: string): string[] {
+    const regex = /(?<=\d)(?=\D)/; // Lookbehind for a digit and lookahead for a non-digit
+    return input.split(regex);
 }
