@@ -1,6 +1,6 @@
 export const tabchar:string = "\t";
 
-export const operators:string[] = ["=","<",">","+","-","*","/","%","<=",">=","!=","<>","!<","!>"];
+export const operators:string[] = ["=","<",">","\\+","-","\\*","\\/","%","<=",">=","!=","<>","!<","!>"];
 
 export const sqlKeywords:string[] = [
     '@@VERSION',
