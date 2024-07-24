@@ -66,28 +66,6 @@ function formatOperators(code: string): string
 }
 
 
-function formatSelectClauses(code: string, direction: string) : string
-{
-    const selectRegex = /SELECT\s+([\s\S]+?)\s+FROM/gs;
-
-    if (direction === "remove")
-        {
-            // Replace line comments with placeholders
-            code = code.replace(selectRegex, (match) => {
-                selectClauses.push(match);
-                return `__SELECT_CLAUSE_${selectClauses.length - 1}__`;
-            });
-
-            //Work through string array to format each select clause
-        }
-        else
-        {
-            // Restore line comments
-            code = code.replace(/__SELECT_CLAUSE_(\d+)__/g, (match, index) => selectClauses[Number(index)]);
-        }
-        return code;    
-}
-
 function GetEmbeddedLines(srcarray : string[], endtokens: string[], startindex: number) : [string[], number]
 {
 	let endindex:number = srcarray.map(token => token.toUpperCase()).findIndex(x => endtokens.includes(x), startindex+1);
@@ -104,35 +82,35 @@ function GetEmbeddedLines(srcarray : string[], endtokens: string[], startindex: 
 	return [columnarray, startindex];
 }
 
-function extractSelectClause(query: string): string | null {
-    const selectIndex = query.search(/SELECT/i);
-    const fromIndex = query.search(/FROM/i);
-  
-    if (selectIndex === -1 || fromIndex === -1 || fromIndex <= selectIndex) {
-      return null; // No valid SELECT-FROM structure found
-    }
-  
-    let clause = query.slice(selectIndex + 6, fromIndex).trim(); // Initial extraction between SELECT and FROM
-  
-    // Handling nested SELECT statements
-    let openParens = 0;
-    for (let i = 0; i < clause.length; i++) {
-      if (clause[i] === '(') openParens++;
-      if (clause[i] === ')') openParens--;
-  
-      // If an embedded SELECT statement is found, adjust the FROM index accordingly
-      if (openParens === 0 && clause.slice(i).search(/SELECT/i) !== -1) {
-        const newFromIndex = clause.slice(i).search(/FROM/i);
-        if (newFromIndex !== -1) {
-          clause = clause.slice(0, i + newFromIndex).trim();
-          break;
+function extractSelectClause(code: string)
+{
+    const fromArray = Array.from(code.matchAll(/FROM/gd));
+    let selectArray = Array.from(code.matchAll(/SELECT/gd));
+    
+    let selectClauseArray:[number,number][] = [];
+
+    console.log(selectArray);
+    console.log(fromArray);
+
+    for (const from of fromArray)
+    {
+        const fromIndex = from.index;
+        let i:number = selectArray.length;
+        let selectIndex:number = -1;
+        while (i > 0)
+        {
+            i--;
+            if (selectArray[i].index < fromIndex && selectIndex < 0)
+            {
+                selectIndex = selectArray[i].index;
+                selectArray.splice(i,1);
+            }
         }
-      }
+        selectClauseArray.push([selectIndex,fromIndex]);
     }
-  
-    return clause;
-  }
-  
+    console.log(selectClauseArray);
+}
+
 
 // Function to format the entire SQL code
 export function formatSQLCode(code: string): string 
@@ -154,9 +132,9 @@ export function formatSQLCode(code: string): string
     let destindex:number = 0;
 
     //console.log(formattedCode);
-    
-    let test = extractSelectClause(formattedCode);
 
+    extractSelectClause(formattedCode);
+    
     while (lineindex < codearray.length)
     {
         const blockCommentRegex = /^\s*__BLOCK_COMMENT_(\d+)__\s*$/;
@@ -176,67 +154,67 @@ export function formatSQLCode(code: string): string
                 let token = tokenarray[tokenindex].trim();
 
                 if (sqlKeywords.find(x => x.toUpperCase() === token.toUpperCase()))
+                {
+                    if (token === "SELECT")
                     {
-                        if (token === "SELECT")
-                        {
-                            var result = GetEmbeddedLines(codearray,["FROM"],lineindex);
-                            //let workingarray = formatColumnList(result[0],tabcount+1);
-                            //workingarray.forEach(col => {destarray.push(col);});
-                            lineindex = result[1];
-                        }
-                        /*
-                        if (token === "FROM")
-                        {
-                            var result = GetEmbeddedLines(sourcearray,["WHERE", "GROUP", "ORDER"],tokenindex);
-                            let workingarray = formatFrom(result[0],tabcount+1);
-                            workingarray.forEach(col => {destarray.push(col);});
-                            tokenindex = result[1];
-                        }
-    
-                        if (token === "WHERE")
-                        {
-                            var result = GetEmbeddedLines(sourcearray,["GROUP", "ORDER"],tokenindex);
-                            let workingarray = formatWhere(result[0],tabcount+1);
-                            workingarray.forEach(col => {destarray.push(col);});
-                            tokenindex = result[1];
-                        }
-    
-                        if (token === "GROUP")
-                        {
-                            if (sourcearray[tokenindex+1].toUpperCase() === "BY")
-                            {
-                                destarray[destindex] = destarray[destindex] + " BY";
-                                tokenindex++;
-                            }
-                            var result = GetEmbeddedLines(sourcearray,["HAVING","ORDER"],tokenindex);
-                            let workingarray = formatColumnList(result[0],tabcount+1);
-                            workingarray.forEach(col => {destarray.push(col);});
-                            tokenindex = result[1];
-                        }
-    
-                        if (token === "HAVING")
-                        {
-                            var result = GetEmbeddedLines(sourcearray,["ORDER"],tokenindex);
-                            let workingarray = formatWhere(result[0],tabcount+1);
-                            workingarray.forEach(col => {destarray.push(col);});
-                            tokenindex = result[1];
-                        }
-    
-                        if (token === "ORDER")
-                        {
-                            if (sourcearray[tokenindex+1].toUpperCase() === "BY")
-                            {
-                                destarray[destindex] = destarray[destindex] + " BY";
-                                tokenindex++;
-                            }
-                            var result = GetEmbeddedLines(sourcearray,[],tokenindex);
-                            let workingarray = formatColumnList(result[0],tabcount+1);
-                            workingarray.forEach(col => {destarray.push(col);});
-                            tokenindex = result[1];
-                        }
-                        */
+                        var result = GetEmbeddedLines(codearray,["FROM"],lineindex);
+                        //let workingarray = formatColumnList(result[0],tabcount+1);
+                        //workingarray.forEach(col => {destarray.push(col);});
+                        lineindex = result[1];
                     }
-                    tokenindex++;
+                    /*
+                    if (token === "FROM")
+                    {
+                        var result = GetEmbeddedLines(sourcearray,["WHERE", "GROUP", "ORDER"],tokenindex);
+                        let workingarray = formatFrom(result[0],tabcount+1);
+                        workingarray.forEach(col => {destarray.push(col);});
+                        tokenindex = result[1];
+                    }
+
+                    if (token === "WHERE")
+                    {
+                        var result = GetEmbeddedLines(sourcearray,["GROUP", "ORDER"],tokenindex);
+                        let workingarray = formatWhere(result[0],tabcount+1);
+                        workingarray.forEach(col => {destarray.push(col);});
+                        tokenindex = result[1];
+                    }
+
+                    if (token === "GROUP")
+                    {
+                        if (sourcearray[tokenindex+1].toUpperCase() === "BY")
+                        {
+                            destarray[destindex] = destarray[destindex] + " BY";
+                            tokenindex++;
+                        }
+                        var result = GetEmbeddedLines(sourcearray,["HAVING","ORDER"],tokenindex);
+                        let workingarray = formatColumnList(result[0],tabcount+1);
+                        workingarray.forEach(col => {destarray.push(col);});
+                        tokenindex = result[1];
+                    }
+
+                    if (token === "HAVING")
+                    {
+                        var result = GetEmbeddedLines(sourcearray,["ORDER"],tokenindex);
+                        let workingarray = formatWhere(result[0],tabcount+1);
+                        workingarray.forEach(col => {destarray.push(col);});
+                        tokenindex = result[1];
+                    }
+
+                    if (token === "ORDER")
+                    {
+                        if (sourcearray[tokenindex+1].toUpperCase() === "BY")
+                        {
+                            destarray[destindex] = destarray[destindex] + " BY";
+                            tokenindex++;
+                        }
+                        var result = GetEmbeddedLines(sourcearray,[],tokenindex);
+                        let workingarray = formatColumnList(result[0],tabcount+1);
+                        workingarray.forEach(col => {destarray.push(col);});
+                        tokenindex = result[1];
+                    }
+                    */
+                }
+                tokenindex++;
             }
             lineindex++;
         }
